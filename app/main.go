@@ -1,138 +1,68 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net"
+
+	"github.com/google/gopacket"
+	layers "github.com/google/gopacket/layers"
 )
 
-// Header represents the DNS message header structure
-type Header struct {
-	ID      uint16
-	Flags   uint16
-	QDCount uint16
-	ANCount uint16
-	NSCount uint16
-	ARCount uint16
-}
-
-// ParseHeader parses the header section of a DNS packet
-func ParseHeader(data []byte) *Header {
-	return &Header{
-		ID:      binary.BigEndian.Uint16(data[0:2]),
-		Flags:   binary.BigEndian.Uint16(data[2:4]),
-		QDCount: binary.BigEndian.Uint16(data[4:6]),
-		ANCount: binary.BigEndian.Uint16(data[6:8]),
-		NSCount: binary.BigEndian.Uint16(data[8:10]),
-		ARCount: binary.BigEndian.Uint16(data[10:12]),
-	}
-}
-
-// BuildResponseHeader creates a DNS response header based on the request header
-func BuildResponseHeader(requestHeader *Header, rcode uint16) []byte {
-	flags := combineFlags(
-		1,                                   // QR (response)
-		uint((requestHeader.Flags>>11)&0xF), // OPCODE
-		0,                                   // AA (authoritative answer)
-		0,                                   // TC (truncation)
-		uint((requestHeader.Flags>>8)&0x1),  // RD (recursion desired)
-		0,                                   // RA (recursion available)
-		0,                                   // Z (reserved)
-		uint(rcode),                         // RCODE
-	)
-
-	responseHeader := &Header{
-		ID:      requestHeader.ID,
-		Flags:   flags,
-		QDCount: 1, // One question
-		ANCount: 0, // No answers (in this stage)
-		NSCount: 0,
-		ARCount: 0,
-	}
-	return responseHeader.ToBytes()
-}
-
-// ToBytes converts the Header struct into a byte slice
-func (h *Header) ToBytes() []byte {
-	headerBytes := make([]byte, 12)
-	binary.BigEndian.PutUint16(headerBytes[0:2], h.ID)
-	binary.BigEndian.PutUint16(headerBytes[2:4], h.Flags)
-	binary.BigEndian.PutUint16(headerBytes[4:6], h.QDCount)
-	binary.BigEndian.PutUint16(headerBytes[6:8], h.ANCount)
-	binary.BigEndian.PutUint16(headerBytes[8:10], h.NSCount)
-	binary.BigEndian.PutUint16(headerBytes[10:12], h.ARCount)
-	return headerBytes
-}
-
-// combineFlags creates the DNS flags field from individual components
-func combineFlags(qr, opcode, aa, tc, rd, ra, z, rcode uint) uint16 {
-	return uint16(qr<<15 | opcode<<11 | aa<<10 | tc<<9 | rd<<8 | ra<<7 | z<<4 | rcode)
-}
-
-// BuildQuestionSection constructs the question section of the DNS response
-func BuildQuestionSection(data []byte, qdCount uint16) []byte {
-	if qdCount == 0 {
-		return nil
-	}
-	// Copy the question section directly from the request
-	questionStart := 12 // Question section starts after the 12-byte header
-	return data[questionStart:]
-}
+var records map[string]string
 
 func main() {
-	fmt.Println("Logs from your program will appear here!")
-
-	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:2053")
-	if err != nil {
-		fmt.Println("Failed to resolve UDP address:", err)
-		return
+	records = map[string]string{
+		"google.com": "216.58.196.142",
+		"amazon.com": "176.32.103.205",
 	}
 
-	udpConn, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		fmt.Println("Failed to bind to address:", err)
-		return
+	//Listen on UDP Port
+	addr := net.UDPAddr{
+		Port: 8090,
+		IP:   net.ParseIP("127.0.0.1"),
 	}
-	defer udpConn.Close()
+	u, _ := net.ListenUDP("udp", &addr)
 
-	buf := make([]byte, 512)
-
+	// Wait to get request on that port
 	for {
-		size, source, err := udpConn.ReadFromUDP(buf)
-		if err != nil {
-			fmt.Println("Error receiving data:", err)
-			break
-		}
-
-		if size < 12 {
-			fmt.Println("Invalid DNS packet received")
-			continue
-		}
-
-		// Parse the received DNS packet header
-		requestHeader := ParseHeader(buf[:12])
-		opcode := (requestHeader.Flags >> 11) & 0xF
-
-		// Determine the response code based on the OPCODE
-		var rcode uint16
-		if opcode == 0 {
-			rcode = 0 // No error
-		} else {
-			rcode = 4 // Not implemented
-		}
-
-		// Build the response header
-		responseHeader := BuildResponseHeader(requestHeader, rcode)
-
-		// Copy the question section from the request
-		questionSection := BuildQuestionSection(buf, requestHeader.QDCount)
-
-		// Construct the complete DNS response
-		response := append(responseHeader, questionSection...)
-
-		_, err = udpConn.WriteToUDP(response, source)
-		if err != nil {
-			fmt.Println("Failed to send response:", err)
-		}
+		tmp := make([]byte, 1024)
+		_, addr, _ := u.ReadFrom(tmp)
+		clientAddr := addr
+		packet := gopacket.NewPacket(tmp, layers.LayerTypeDNS, gopacket.Default)
+		dnsPacket := packet.Layer(layers.LayerTypeDNS)
+		tcp, _ := dnsPacket.(*layers.DNS)
+		serveDNS(u, clientAddr, tcp)
 	}
+}
+
+func serveDNS(u *net.UDPConn, clientAddr net.Addr, request *layers.DNS) {
+	replyMess := request
+	var dnsAnswer layers.DNSResourceRecord
+	dnsAnswer.Type = layers.DNSTypeA
+	var ip string
+	var err error
+	var ok bool
+	ip, ok = records[string(request.Questions[0].Name)]
+	if !ok {
+		//Todo: Log no data present for the IP and handle:todo
+	}
+	a, _, _ := net.ParseCIDR(ip + "/24")
+	dnsAnswer.Type = layers.DNSTypeA
+	dnsAnswer.IP = a
+	dnsAnswer.Name = []byte(request.Questions[0].Name)
+	fmt.Println(request.Questions[0].Name)
+	dnsAnswer.Class = layers.DNSClassIN
+	replyMess.QR = true
+	replyMess.ANCount = 1
+	replyMess.OpCode = layers.DNSOpCodeNotify
+	replyMess.AA = true
+	replyMess.Answers = append(replyMess.Answers, dnsAnswer)
+	replyMess.ResponseCode = layers.DNSResponseCodeNoErr
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{} // See SerializeOptions for more details.
+	err = replyMess.SerializeTo(buf, opts)
+	if err != nil {
+		panic(err)
+	}
+	u.WriteTo(buf.Bytes(), clientAddr)
 }
