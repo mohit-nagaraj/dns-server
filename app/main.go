@@ -30,20 +30,22 @@ func ParseHeader(data []byte) *Header {
 
 // BuildResponseHeader creates a DNS response header based on the request header
 func BuildResponseHeader(requestHeader *Header, rcode uint16) []byte {
-	flags := combineFlags(1, // QR (response)
+	flags := combineFlags(
+		1,                                   // QR (response)
 		uint((requestHeader.Flags>>11)&0xF), // OPCODE
 		0,                                   // AA (authoritative answer)
 		0,                                   // TC (truncation)
 		uint((requestHeader.Flags>>8)&0x1),  // RD (recursion desired)
 		0,                                   // RA (recursion available)
 		0,                                   // Z (reserved)
-		uint(rcode))                         // RCODE
+		uint(rcode),                         // RCODE
+	)
 
 	responseHeader := &Header{
 		ID:      requestHeader.ID,
 		Flags:   flags,
-		QDCount: requestHeader.QDCount,
-		ANCount: 1, // One answer record
+		QDCount: 1, // One question
+		ANCount: 0, // No answers (in this stage)
 		NSCount: 0,
 		ARCount: 0,
 	}
@@ -65,6 +67,16 @@ func (h *Header) ToBytes() []byte {
 // combineFlags creates the DNS flags field from individual components
 func combineFlags(qr, opcode, aa, tc, rd, ra, z, rcode uint) uint16 {
 	return uint16(qr<<15 | opcode<<11 | aa<<10 | tc<<9 | rd<<8 | ra<<7 | z<<4 | rcode)
+}
+
+// BuildQuestionSection constructs the question section of the DNS response
+func BuildQuestionSection(data []byte, qdCount uint16) []byte {
+	if qdCount == 0 {
+		return nil
+	}
+	// Copy the question section directly from the request
+	questionStart := 12 // Question section starts after the 12-byte header
+	return data[questionStart:]
 }
 
 func main() {
@@ -112,8 +124,11 @@ func main() {
 		// Build the response header
 		responseHeader := BuildResponseHeader(requestHeader, rcode)
 
-		// Construct a minimal DNS response (header only)
-		response := responseHeader
+		// Copy the question section from the request
+		questionSection := BuildQuestionSection(buf, requestHeader.QDCount)
+
+		// Construct the complete DNS response
+		response := append(responseHeader, questionSection...)
 
 		_, err = udpConn.WriteToUDP(response, source)
 		if err != nil {
