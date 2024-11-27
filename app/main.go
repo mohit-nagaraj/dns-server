@@ -5,8 +5,7 @@ import "encoding/binary"
 type Message struct {
 	Header   []byte
 	Question []byte
-	//Answer
-	Answer []byte
+	Answer   []byte
 	//Authority
 	//Additional
 }
@@ -22,7 +21,6 @@ func (m *Message) SetHeader() {
 	binary.BigEndian.PutUint16((*m).Header[0:2], 1234)
 	binary.BigEndian.PutUint16((*m).Header[2:4], combineFlags(1, 0, 0, 0, 0, 0, 0, 0))
 	binary.BigEndian.PutUint16((*m).Header[4:6], 1)
-	binary.BigEndian.PutUint16((*m).Header[6:8], 0)
 	binary.BigEndian.PutUint16((*m).Header[6:8], 1)
 	binary.BigEndian.PutUint16((*m).Header[8:10], 0)
 	binary.BigEndian.PutUint16((*m).Header[10:12], 0)
