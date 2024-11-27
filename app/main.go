@@ -33,7 +33,6 @@ func main() {
 		response = append(response, buf[:2]...)
 		response = append(response, 0b10000000)
 		response = append(response, 0b00000000)
-		response = append(response, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
 		response = binary.BigEndian.AppendUint16(response, uint16(1)) // QDCOUNT
 		response = binary.BigEndian.AppendUint16(response, 0x0000)    // ANCOUNT
 		response = binary.BigEndian.AppendUint16(response, 0x0000)    // NSCOUNT
