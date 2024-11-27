@@ -75,15 +75,16 @@ func main() {
 				Z:       0,
 				Rcode:   0,
 				QDCOUNT: 1,
-				ANCOUNT: 1,
+				ANCOUNT: 0,
 				NSCOUNT: 0,
 				ARCOUNT: 0,
 			},
 			Questions: receivedMessage.Questions,
 		}
 
-		responseMessage.Questions[0].Type = 1
-		responseMessage.Questions[0].Class = 1
+		if responseMessage.Header.Opcode != 0 {
+			responseMessage.Header.Rcode = 4
+		}
 
 		response, err := responseMessage.MarshalBinary()
 		if err != nil {
